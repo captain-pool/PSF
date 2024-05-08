@@ -8,6 +8,17 @@ import tqdm
 from sklearn import manifold
 from torchvision import models
 
+import argparse
+
+
+def build_parser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--dataroot", required=True, help="Data Root with npy point clouds"
+    )
+    parser.add_argument("--nviews", type=int, default=5, help="Number of Views")
+    return parser
+
 
 class Identity(torch.nn.Module):
     def forward(self, inputs):
@@ -119,3 +130,49 @@ class ImageFeatureExtractor:
             result[cached_indices] = torch.vstack(cached_data).to(result.device)
 
         return result
+
+
+if __name__ == "__main__":
+
+    from utils import render
+    import numpy as np
+    import pathlib
+    import tqdm
+
+    parser = build_parser()
+
+    args, _ = parser.parse_known_args()
+
+    renderer = render.Renderer(center=[0, 0, 0], world_up=[0, 0, 1], res=(224, 224))
+    theta = np.linspace(-np.pi, np.pi, args.nviews)[..., None]
+    phi = np.linspace(-np.pi, np.pi, args.nviews)[..., None]
+
+    r = 2.0
+    vec = [np.sin(phi) * np.cos(theta), np.cos(phi) * np.sin(theta), np.cos(phi)]
+    eyes = np.hstack(vec)
+
+    root = pathlib.Path(args.dataroot)
+
+    extractor = ImageFeatureExtractor()
+
+    for file in tqdm.tqdm(root.glob("*/*/*.npy")):
+        img_dir = file.parent / "feats"
+        if not img_dir.exists():
+            img_dir.mkdir()
+
+        feat_path = img_dir / f"{file.stem}_feat.npy"
+
+        try:
+          cloud = np.load(file, allow_pickle=True)
+        except:
+          continue
+
+        img_tensor = torch.zeros((len(eyes), 224, 224, 3), dtype=torch.float32)
+        for i in range(len(eyes)):
+            eye = vec[i]
+            img_tensor[i] = torch.from_numpy(
+                renderer.render_cloud(cloud, eye=eye)
+            ).squeeze()
+
+        feats = extractor.features_img(img_tensor).numpy()
+        np.save(str(feat_path), feats)
