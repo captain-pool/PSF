@@ -10,6 +10,74 @@ import trimesh  # noqa: E402
 import pyrender  # noqa: E402
 
 
+class Renderer:
+    def __init__(
+        self,
+        center,
+        world_up,
+        res=(640, 640),
+        light_intensity=3.0,
+        ambient_intensity=0.5,
+        **kwargs,
+    ):
+        self.center = list2npy(center).astype(np.float32)
+        self.world_up = list2npy(world_up).astype(np.float32)
+
+        camera = pyrender.PerspectiveCamera(yfov=np.pi / 3.0)
+        # setup camera pose matrix
+        self.scene = pyrender.Scene(
+            ambient_light=ambient_intensity * np.ones([3], dtype=float)
+        )
+
+        self.cam_node = self.scene.add(camera)
+
+        # Set up the light -- a single spot light in the same spot as the camera
+        light = pyrender.SpotLight(
+            color=np.ones(3, dtype=np.float32),
+            intensity=light_intensity,
+            innerConeAngle=np.pi / 16.0,
+        )
+        self.light_node = self.scene.add(light)
+
+        # Render the scene
+        self.r = pyrender.OffscreenRenderer(*res, **kwargs)
+        self._res = res
+
+    def render_cloud(self, batched_cloud, eye):
+        # Images
+        images = np.zeros((len(batched_cloud), *self._res, 3), dtype=batched_cloud.dtype)
+        eye = list2npy(eye).astype(np.float32)
+        world_to_cam = look_at(eye[None], self.center[None], self.world_up[None])
+        world_to_cam = world_to_cam[0]
+        cam_pose = np.linalg.inv(world_to_cam)
+        self.scene.set_pose(self.cam_node, pose=cam_pose)
+        self.scene.set_pose(self.light_node, pose=cam_pose)
+
+        if len(batched_cloud.shape) != 3:
+            batched_cloud = np.asarray([batched_cloud])
+
+        for i in range(len(batched_cloud)):
+
+            tmesh = trimesh.points.PointCloud(batched_cloud[i])
+
+            if isinstance(tmesh, trimesh.Trimesh):
+                mesh = pyrender.Mesh.from_trimesh(tmesh)
+            elif isinstance(tmesh, trimesh.PointCloud):
+                if tmesh.colors is not None:
+                    colors = np.array(tmesh.colors)
+                else:
+                    colors = np.ones_like(tmesh.vertices)
+                mesh = pyrender.Mesh.from_points(
+                    np.array(tmesh.vertices), colors=colors
+                )
+            node = self.scene.add(mesh)
+            color_img, depth_img = self.r.render(self.scene)
+            images[i] = color_img.astype(batched_cloud.dtype)
+            self.scene.remove_node(node)
+
+        return images
+
+
 def render_cloud(
     batched_cloud,
     eye,
@@ -43,61 +111,6 @@ def render_cloud(
       world_to_cam: [4, 4] camera to world matrix.
       projection_matrix: [4, 4] projection matrix, aka cam_to_img matrix.
     """
-    eye = list2npy(eye).astype(np.float32)
-    center = list2npy(center).astype(np.float32)
-    world_up = list2npy(world_up).astype(np.float32)
-
-    camera = pyrender.PerspectiveCamera(yfov=np.pi / 3.0)
-    # setup camera pose matrix
-    scene = pyrender.Scene(
-        ambient_light=ambient_intensity*np.ones([3], dtype=float)
-    )
-
-
-    world_to_cam = look_at(eye[None], center[None], world_up[None])
-    world_to_cam = world_to_cam[0]
-    cam_pose = np.linalg.inv(world_to_cam)
-    scene.add(camera, pose=cam_pose)
-
-    if len(batched_cloud.shape) != 3:
-      batched_cloud = np.asarray([batched_cloud])
-
-    # Set up the light -- a single spot light in the same spot as the camera
-    light = pyrender.SpotLight(
-        color=np.ones(3, dtype=np.float32),
-        intensity=light_intensity,
-        innerConeAngle=np.pi / 16.0,
-    )
-    scene.add(light, pose=cam_pose)
-
-    # Render the scene
-    r = pyrender.OffscreenRenderer(*res, **kwargs)
-
-    # Images
-    images = np.zeros((len(batched_cloud), *res, 3), dtype=batched_cloud.dtype)
-
-    for i in range(len(batched_cloud)):
-
-        tmesh = trimesh.points.PointCloud(batched_cloud[i])
-
-        if isinstance(tmesh, trimesh.Trimesh):
-            mesh = pyrender.Mesh.from_trimesh(tmesh)
-        elif isinstance(tmesh, trimesh.PointCloud):
-            if tmesh.colors is not None:
-                colors = np.array(tmesh.colors)
-            else:
-                colors = np.ones_like(tmesh.vertices)
-            mesh = pyrender.Mesh.from_points(
-                np.array(tmesh.vertices), colors=colors
-            )
-        node = scene.add(mesh)
-        color_img, depth_img = r.render(scene)
-        images[i] = color_img.astype(batched_cloud.dtype) 
-        scene.remove_node(node)
-
-    # Set up the camera -- z-axis away from the scene, x-axis right, y-axis up
-    return images
-
 
 
 def list2npy(array):
@@ -146,9 +159,7 @@ def look_at(eye, center, world_up):
     )  # [batch_size, 4, 4]
 
     identity_batch = np.tile(np.expand_dims(np.eye(3), 0), [batch_size, 1, 1])
-    view_translation = np.concatenate(
-        [identity_batch, np.expand_dims(-eye, 2)], 2
-    )
+    view_translation = np.concatenate([identity_batch, np.expand_dims(-eye, 2)], 2)
     view_translation = np.concatenate(
         [view_translation, w_column.reshape([batch_size, 1, 4])], 1
     )
