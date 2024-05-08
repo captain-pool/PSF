@@ -60,7 +60,7 @@ def render_cloud(
     scene.add(camera, pose=cam_pose)
 
     if len(batched_cloud.shape) != 3:
-      batched_cloud = [batched_cloud]
+      batched_cloud = np.asarray([batched_cloud])
 
     # Set up the light -- a single spot light in the same spot as the camera
     light = pyrender.SpotLight(
