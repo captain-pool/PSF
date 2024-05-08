@@ -92,7 +92,7 @@ def render_cloud(
             )
         node = scene.add(mesh)
         color_img, depth_img = r.render(scene)
-        images[idx] = color_image.astype(batched_cloud.dtype) 
+        images[idx] = color_img.astype(batched_cloud.dtype) 
         scene.remove_node(node)
 
     # Set up the camera -- z-axis away from the scene, x-axis right, y-axis up
