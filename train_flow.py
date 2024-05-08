@@ -667,7 +667,7 @@ def parse_args():
     parser.add_argument(
         "--model", default="", help="path to model (to continue training)"
     )
-    parser.add_argument("--ldim", default=2048, help="dimension size of latent vector")
+    parser.add_argument("--ldim", dest="latent_dim", default=2048, help="dimension size of latent vector")
 
     """distributed"""
     parser.add_argument(
