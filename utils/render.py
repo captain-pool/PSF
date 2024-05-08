@@ -59,6 +59,9 @@ def render_cloud(
     cam_pose = np.linalg.inv(world_to_cam)
     scene.add(camera, pose=cam_pose)
 
+    if len(batched_cloud.shape) != 3:
+      batched_cloud = [batched_cloud]
+
     # Set up the light -- a single spot light in the same spot as the camera
     light = pyrender.SpotLight(
         color=np.ones(3, dtype=np.float32),
@@ -70,13 +73,10 @@ def render_cloud(
     # Render the scene
     r = pyrender.OffscreenRenderer(*res, **kwargs)
 
-    device = batched_cloud.device
-
-
     # Images
-    images = torch.zeros((len(batched_cloud), *res, 3), dtype=batched_cloud.dtype).to(device)
+    images = np.zeros((len(batched_cloud), *res, 3), dtype=batched_cloud.dtype)
 
-    for idx in range(len(batched_cloud)):
+    for i in range(len(batched_cloud)):
 
         tmesh = trimesh.points.PointCloud(batched_cloud[i])
 
@@ -92,7 +92,7 @@ def render_cloud(
             )
         node = scene.add(mesh)
         color_img, depth_img = r.render(scene)
-        images[idx] = torch.tensor(color_img, dtype=batched_cloud.dtype).to(device)
+        images[idx] = color_image.astype(batched_cloud.dtype) 
         scene.remove_node(node)
 
     # Set up the camera -- z-axis away from the scene, x-axis right, y-axis up

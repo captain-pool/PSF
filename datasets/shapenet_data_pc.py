@@ -192,11 +192,11 @@ class Uniform15KPC(Dataset):
         eye = eye / (np.linalg.norm(eye))
         eye = eye * 2.0
 
-        tr_image = render.render_cloud(self.train_points[idx][None, ...], eye=eye, center=[0, 0, 0], world_up=[0, 0, 1])
+        tr_image = render.render_cloud(self.train_points[idx], eye=eye, center=[0, 0, 0], world_up=[0, 0, 1])
         tr_feat = self.extractor.features_img(tr_image)
 
-        te_images = render.render_cloud(self.test_points[idx][None, ...], eye=eye, center=[0, 0, 0], world_up=[0, 0, 1])
-        te_feats = self.extractor.features_img(te_image)
+        te_image = render.render_cloud(self.test_points[idx], eye=eye, center=[0, 0, 0], world_up=[0, 0, 1])
+        te_feat = self.extractor.features_img(te_image)
 
         if self.reflow:
             idx = idx1

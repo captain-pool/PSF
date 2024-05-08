@@ -45,14 +45,14 @@ class ImageFeatureExtractor:
             self.tree = scipy.spatial.KDTree(result)
 
     def features_img(self, img, latent_dim=2048):
-      old_device = img.device
       num_imgs = len(img)
       batch_size = min(num_imgs, 64)
       computed_result = torch.zeros((num_imgs, self._ldim), dtype=torch.float32)
       with torch.no_grad():
         for i in range(0, num_imgs // batch_size, batch_size):
-          computed_result = self.model(self.transforms(img[i:i + batch_size].to(self._device)))
-      return computed_result.to(old_device)
+          inputs = torch.from_numpy(img[i:i + batch_size]).to(self._device)
+          computed_result = self.model(self.transforms(inputs))
+      return computed_result.cpu()
 
     def features(self, img_paths):
         result = torch.empty(len(img_paths), self._ncomponents, dtype=torch.float32)
