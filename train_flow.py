@@ -610,6 +610,7 @@ def main():
     """ workaround """
     train_dataset, _ = get_dataset(opt.dataroot, opt.npoints, opt.category)
     noises_init = torch.randn(len(train_dataset), opt.npoints, opt.nc)
+    mp.set_start_method("spawn")
 
     if opt.dist_url == "env://" and opt.world_size == -1:
         opt.world_size = int(os.environ["WORLD_SIZE"])
