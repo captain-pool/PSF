@@ -7,7 +7,6 @@ import random
 import open3d as o3d
 import numpy as np
 import torch.nn.functional as F
-from datasets import feature_extractor
 from utils import render
 
 # taken from https://github.com/optas/latent_3d_points/blob/8e8f29f8124ed5fc59439e8551ba7ef7567c9a37/src/in_out.py
@@ -57,7 +56,6 @@ class Uniform15KPC(Dataset):
         self.input_dim = input_dim
         self.use_mask = use_mask
         self.box_per_shape = box_per_shape
-        self.extractor = feature_extractor.ImageFeatureExtractor()
         if use_mask:
             self.mask_transform = PointCloudMasks(radius=5, elev=5, azim=90)
 
@@ -193,10 +191,8 @@ class Uniform15KPC(Dataset):
         eye = eye * 2.0
 
         tr_image = render.render_cloud(self.train_points[idx], eye=eye, center=[0, 0, 0], world_up=[0, 0, 1])
-        tr_feat = self.extractor.features_img(tr_image)
 
         te_image = render.render_cloud(self.test_points[idx], eye=eye, center=[0, 0, 0], world_up=[0, 0, 1])
-        te_feat = self.extractor.features_img(te_image)
 
         if self.reflow:
             idx = idx1
@@ -204,15 +200,14 @@ class Uniform15KPC(Dataset):
             x1 = self.x1[idx, :, :]
 
             x1_img = render.render_cloud(x1[None, ...], eye=eye, center=[0, 0, 0], world_up=[0, 0, 1])
-            x1_feat = self.extractor.features_img(x1_img)
 
             out = {
             'idx': idx,
             'train_points0': x0,
             'train_points1': x1,
             'test_points': te_out,
-            'train_feat': x1_feat,
-            'test_feat': te_feat,
+            'train_img': x1_img,
+            'test_img': te_img,
             'mean': m, 'std': s, 'cate_idx': cate_idx,
             'sid': sid, 'mid': mid
             }
@@ -221,8 +216,8 @@ class Uniform15KPC(Dataset):
             'idx': idx,
             'train_points': tr_out,
             'test_points': te_out,
-            'train_feat': tr_feat,
-            'test_feat': te_feat,
+            'train_img': tr_img,
+            'test_img': te_img,
             'mean': m, 'std': s, 'cate_idx': cate_idx,
             'sid': sid, 'mid': mid
         }

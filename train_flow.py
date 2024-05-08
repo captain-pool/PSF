@@ -11,7 +11,7 @@ from utils.visualize import *
 from model.pvcnn_generation import PVCNN2Base
 import torch.distributed as dist
 from datasets.shapenet_data_pc import ShapeNet15kPointClouds
-
+from datasets import feature_extractor
 
 class Flowmodel:
     def __init__(self, opt):
@@ -419,6 +419,8 @@ def train(gpu, opt, output_dir, noises_init):
         extra=opt.latent_dim,
     )
 
+    extractor = feature_extractor.ImageFeatureExtractor()
+
     if opt.distribution_type == "multi":  # Multiple processes, single GPU per process
 
         def _transform_(m):
@@ -429,6 +431,8 @@ def train(gpu, opt, output_dir, noises_init):
         torch.cuda.set_device(gpu)
         model.cuda(gpu)
         model.multi_gpu_wrapper(_transform_)
+        extractor.mark(ddp=True)
+
 
     elif opt.distribution_type == "single":
 
@@ -437,6 +441,8 @@ def train(gpu, opt, output_dir, noises_init):
 
         model = model.cuda()
         model.multi_gpu_wrapper(_transform_)
+        extractor.mark(dp=True)
+
 
     elif gpu is not None:
         torch.cuda.set_device(gpu)
@@ -476,7 +482,7 @@ def train(gpu, opt, output_dir, noises_init):
         for i, data in enumerate(dataloader):
 
             x = data["train_points"].transpose(1, 2)
-            feat = data["train_feat"]
+            feat = extractor.features_img(data["train_img"])
 
             noises_batch = noises_init[data["idx"]].transpose(1, 2)
 
@@ -610,7 +616,6 @@ def main():
     """ workaround """
     train_dataset, _ = get_dataset(opt.dataroot, opt.npoints, opt.category)
     noises_init = torch.randn(len(train_dataset), opt.npoints, opt.nc)
-    mp.set_start_method("spawn")
 
     if opt.dist_url == "env://" and opt.world_size == -1:
         opt.world_size = int(os.environ["WORLD_SIZE"])
