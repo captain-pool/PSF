@@ -11,7 +11,7 @@ import pyrender  # noqa: E402
 
 
 def render_cloud(
-    batch_cloud,
+    batched_cloud,
     eye,
     center,
     world_up,
