@@ -102,15 +102,13 @@ class Uniform15KPC(Dataset):
         self.input_dim = input_dim
         self.use_mask = use_mask
         self.box_per_shape = box_per_shape
-        self._renderer = render.Renderer(
-            center=[0, 0, 0], world_up=[0, 0, 1], res=(224, 224)
-        )
         if use_mask:
             self.mask_transform = PointCloudMasks(radius=5, elev=5, azim=90)
 
         self.all_cate_mids = []
         self.cate_idx_lst = []
         self.all_points = []
+
         for cate_idx, subd in enumerate(self.subdirs):
             # NOTE: [subd] here is synset id
             sub_path = os.path.join(root_dir, subd, self.split)
@@ -257,24 +255,12 @@ class Uniform15KPC(Dataset):
         cate_idx = self.cate_idx_lst[idx]
         sid, mid = self.all_cate_mids[idx]
 
-        eye = np.random.normal(
-            size=[
-                3,
-            ]
-        )
-        eye = eye / (np.linalg.norm(eye))
-        eye = eye * 2.0
-
-        tr_img = self._renderer.render_cloud(self.train_points[idx], eye=eye)
-
-        te_img = self._renderer.render_cloud(self.test_points[idx], eye=eye)
-
+        
         if self.reflow:
             idx = idx1
             x0 = self.x0[idx, :, :]
             x1 = self.x1[idx, :, :]
 
-            x1_img = self._renderer.render_cloud(x1, eye=eye)
 
             out = {
                 "idx": idx,

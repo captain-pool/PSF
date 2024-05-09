@@ -11,6 +11,66 @@ from torchvision import models
 import argparse
 import ray
 
+synsetid_to_cate = {
+    "airplane": "02691156",
+    "bag": "02773838",
+    "basket": "02801938",
+    "bathtub": "02808440",
+    "bed": "02818832",
+    "bench": "02828884",
+    "bottle": "02876657",
+    "bowl": "02880940",
+    "bus": "02924116",
+    "cabinet": "02933112",
+    "can": "02747177",
+    "camera": "02942699",
+    "cap": "02954340",
+    "car": "02958343",
+    "chair": "03001627",
+    "clock": "03046257",
+    "dishwasher": "03207941",
+    "monitor": "03211117",
+    "table": "04379243",
+    "telephone": "04401088",
+    "tin_can": "02946921",
+    "tower": "04460130",
+    "train": "04468005",
+    "keyboard": "03085013",
+    "earphone": "03261776",
+    "faucet": "03325088",
+    "file": "03337140",
+    "guitar": "03467517",
+    "helmet": "03513137",
+    "jar": "03593526",
+    "knife": "03624134",
+    "lamp": "03636649",
+    "laptop": "03642806",
+    "speaker": "03691459",
+    "mailbox": "03710193",
+    "microphone": "03759954",
+    "microwave": "03761084",
+    "motorcycle": "03790512",
+    "mug": "03797390",
+    "piano": "03928116",
+    "pillow": "03938244",
+    "pistol": "03948459",
+    "pot": "03991062",
+    "printer": "04004475",
+    "remote_control": "04074963",
+    "rifle": "04090263",
+    "rocket": "04099429",
+    "skateboard": "04225987",
+    "sofa": "04256520",
+    "stove": "04330267",
+    "vessel": "04530566",
+    "washer": "04554684",
+    "cellphone": "02992529",
+    "birdhouse": "02843684",
+    "bookshelf": "02871439",
+    # 'boat': '02858304', no boat in our dataset, merged into vessels
+    # 'bicycle': '02834778', not in our taxonomy
+}
+
 
 def build_parser():
     parser = argparse.ArgumentParser()
@@ -18,6 +78,7 @@ def build_parser():
         "--dataroot", required=True, help="Data Root with npy point clouds"
     )
     parser.add_argument("--nviews", type=int, default=5, help="Number of Views")
+    parser.add_argument("--category", default="chair", type=str)
     return parser
 
 
@@ -189,7 +250,9 @@ if __name__ == "__main__":
     extractor = ImageFeatureExtractor()
     Render_cls = ray.remote(render.Renderer)
 
-    for file in tqdm.tqdm(list(root.glob("*/*/*.npy"))):
+    synset_id = synsetid_to_cate[args.category]
+
+    for file in tqdm.tqdm(list(root.glob(f"{synset_id}/*/*.npy"))):
         img_dir = file.parent / "feats"
         if not img_dir.exists():
             img_dir.mkdir()
