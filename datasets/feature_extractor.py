@@ -61,8 +61,7 @@ class ImageFeatureExtractor:
         self._shape = [3, 224, 224]
         self.transforms = weights.transforms()
         self._frames_data = dict()
-        self._ncomponents = 32
-        self._ldim = 2048
+        self._ncomponents = 2048#32
 
         self._reduce = manifold.LocallyLinearEmbedding(
             n_neighbors=10, n_components=self._ncomponents
@@ -110,7 +109,7 @@ class ImageFeatureExtractor:
     def features_img(self, img, latent_dim=2048):
         num_imgs = len(img)
         batch_size = min(num_imgs, 64)
-        computed_result = torch.zeros((num_imgs, self._ldim), dtype=torch.float32)
+        computed_result = torch.zeros((num_imgs, self._ncomponents), dtype=torch.float32)
         with torch.no_grad():
             for i in range(0, num_imgs // batch_size, batch_size):
                 inputs = torch.from_numpy(img[i : i + batch_size]).to(self._device)
@@ -145,13 +144,13 @@ class ImageFeatureExtractor:
                 cached_data.append(self._frames_data[img_path.name])
 
         if len(computed_indices) > 0:
-            computed_data = torch.concat(computed_data)
+            computed_data = torch.concat(computed_data).to(self._device)
             with torch.no_grad():
                 computed_result = self.model(computed_data)
             #                computed_result = torch.tensor(
             #                    self._reduce.fit_transform(computed_result.detach().cpu().numpy())
             #                ).to(torch.float32)
-            result[computed_indices] = computed_result
+            result[computed_indices] = computed_result.to(result.device)
 
             if cached:
               for idx in computed_indices:
@@ -198,7 +197,7 @@ if __name__ == "__main__":
         imgs = [] 
         for i in range(len(eyes)):
             pixels = renderer.render_cloud(cloud, eye=eyes[i]).squeeze()
-            imgs.append(PIL.fromarray(pixels.astype(np.uint8)))
+            imgs.append(PIL.Image.fromarray(pixels.astype(np.uint8)))
 
         feats = extractor.features(pil_imgs=imgs).numpy()
         np.save(str(feat_path), feats)
