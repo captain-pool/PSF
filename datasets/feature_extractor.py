@@ -7,6 +7,7 @@ import torch
 import tqdm
 from sklearn import manifold
 from torchvision import models
+from torchvision.models import feature_extraction
 
 import argparse
 import ray
@@ -112,15 +113,17 @@ class ImageFeatureExtractor:
         else:
             self._device = "cpu"
 
-        weights = models.ResNet50_Weights.IMAGENET1K_V2
-        self.model = models.resnet50(weights=weights)
-        self.model.fc = Identity()
-        self.model = self.model.to(self._device)
+        weights = models.ResNet18_Weights.IMAGENET1K_V1
+        model = models.resnet18(weights=weights)
+        rn = {"avgpool": "out"}
+
+        model = feature_extraction.create_feature_extractor(model, rn)
+        self.model = model.to(self._device)
 
         self._shape = [3, 224, 224]
         self.transforms = weights.transforms()
         self._frames_data = dict()
-        self._ncomponents = 2048  # 32
+        self._ncomponents = 32
 
         self._reduce = manifold.LocallyLinearEmbedding(
             n_neighbors=10, n_components=self._ncomponents
@@ -174,7 +177,10 @@ class ImageFeatureExtractor:
         with torch.no_grad():
             for i in range(0, num_imgs // batch_size, batch_size):
                 inputs = torch.from_numpy(img[i : i + batch_size]).to(self._device)
-                computed_result = self.model(self.transforms(inputs))
+                computed_result = self.model(self.transforms(inputs))["out"]
+                computed_result = computed_result.detach().cpu().numpy()
+                computed_result = self._reduce.fit_transform(computed_result)
+                computed_result = torch.tensor(computed_result).float()
         return computed_result
 
     def features(self, img_paths=None, pil_imgs=None):
@@ -206,10 +212,11 @@ class ImageFeatureExtractor:
         if len(computed_indices) > 0:
             computed_data = torch.concat(computed_data).to(self._device)
             with torch.no_grad():
-                computed_result = self.model(computed_data)
-            #                computed_result = torch.tensor(
-            #                    self._reduce.fit_transform(computed_result.detach().cpu().numpy())
-            #                ).to(torch.float32)
+                computed_result = self.model(computed_data)['out']
+                computed_result = computed_result.detach().cpu().numpy()
+                computed_result = torch.tensor(
+                    self._reduce.fit_transform(computed_result)
+                ).float()
             result[computed_indices] = computed_result.to(result.device)
 
             if cached:
