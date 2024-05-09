@@ -207,8 +207,10 @@ class Model(nn.Module):
         B, D, N = data.shape
         assert data.dtype == torch.float
         # assert t.shape == torch.Size([B]) and t.dtype == torch.int64
-        print("FEAT NOT INTEGRATED")
-        out = self.model(data, t)
+
+        feat = feat.repeat(1, 1, N)
+        inputs = torch.cat([data, feat], dim=1)
+        out = self.model(inputs, t)
 
         assert out.shape == torch.Size([B, D, N])
         return out
@@ -493,7 +495,7 @@ def train(gpu, opt, output_dir, noises_init):
                 noises_batch = noises_batch.cuda()
                 feat = feat.cuda()
 
-            loss = model.get_loss_iter(x, noises_batch, feat=feat).mean()
+            loss = model.get_loss_iter(x, feat=feat, noises=noises_batch).mean()
 
             optimizer.zero_grad()
             loss.backward()

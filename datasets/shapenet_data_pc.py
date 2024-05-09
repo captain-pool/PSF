@@ -261,7 +261,7 @@ class Uniform15KPC(Dataset):
 
         tr_feat_set = self.train_feats[idx]
         rnd_tr_feat_idx = np.random.randint(0, tr_feat_set.shape[0]) 
-        tr_feat = tr_feat_set[rnd_tr_feat_idx]
+        tr_feat = tr_feat_set[rnd_tr_feat_idx][..., None]
         tr_feat = torch.from_numpy(tr_feat).float()
 
         if self.random_subsample:
@@ -274,7 +274,7 @@ class Uniform15KPC(Dataset):
 
         te_feat_set = self.test_feats[idx]
         rnd_te_feat_idx = np.random.randint(0, te_feat_set.shape[0])
-        te_feat = te_feat_set[rnd_te_feat_idx]
+        te_feat = te_feat_set[rnd_te_feat_idx][..., None]
         te_feat = torch.from_numpy(te_feat).float()
 
         if self.random_subsample:
