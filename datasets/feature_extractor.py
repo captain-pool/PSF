@@ -20,6 +20,26 @@ def build_parser():
     return parser
 
 
+def points_on_sphere(N):
+    points = np.zeros((N, 3))
+
+    phi = np.pi * (3. - np.sqrt(5.))
+    for i in range(N):
+        y = 1 - (i / float(N - 1)) * 2
+        radius = np.sqrt(1 - y**2)
+        theta = phi * i
+
+        x = np.cos(theta) * radius
+        z = np.sin(theta) * radius
+
+        points[i] = np.asarray([x, y, z])
+
+    return points
+
+
+
+
+
 class Identity(torch.nn.Module):
     def forward(self, inputs):
         return inputs
@@ -144,12 +164,9 @@ if __name__ == "__main__":
     args, _ = parser.parse_known_args()
 
     renderer = render.Renderer(center=[0, 0, 0], world_up=[0, 0, 1], res=(224, 224))
-    theta = np.linspace(-np.pi, np.pi, args.nviews)[..., None]
-    phi = np.linspace(-np.pi, np.pi, args.nviews)[..., None]
 
-    r = 2.0
-    vec = [np.sin(phi) * np.cos(theta), np.cos(phi) * np.sin(theta), np.cos(phi)]
-    eyes = np.hstack(vec)
+
+    eyes = 1.5 * points_on_sphere(args.nviews)
 
     root = pathlib.Path(args.dataroot)
 
@@ -169,7 +186,7 @@ if __name__ == "__main__":
 
         img_tensor = torch.zeros((len(eyes), 224, 224, 3), dtype=torch.float32)
         for i in range(len(eyes)):
-            eye = vec[i]
+            eye = eyes[i]
             img_tensor[i] = torch.from_numpy(
                 renderer.render_cloud(cloud, eye=eye)
             ).squeeze()
