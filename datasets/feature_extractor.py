@@ -11,9 +11,6 @@ from torchvision import models
 import argparse
 import ray
 
-if not ray.is_initialized():
-    ray.init(num_gpus=torch.cuda.device_count())
-
 
 def build_parser():
     parser = argparse.ArgumentParser()
@@ -46,7 +43,6 @@ class Identity(torch.nn.Module):
         return inputs
 
 
-@ray.remote(num_gpus=torch.cuda.is_available() * 0.05)
 class ImageFeatureExtractor:
     def __init__(self, precompute=None, device=None):
 
@@ -186,16 +182,12 @@ if __name__ == "__main__":
 
     args, _ = parser.parse_known_args()
 
-    renderer = render.Renderer(center=[0, 0, 0], world_up=[0, 0, 1], res=(224, 224))
-
     eyes = 1.5 * points_on_sphere(args.nviews)
 
     root = pathlib.Path(args.dataroot)
 
-    dump_interval = 100
-
-    refs = []
-    dump_names = []
+    extractor = ImageFeatureExtractor()
+    Render_cls = ray.remote(render.Renderer)
 
     for file in tqdm.tqdm(list(root.glob("*/*/*.npy"))):
         img_dir = file.parent / "feats"
@@ -210,20 +202,18 @@ if __name__ == "__main__":
             continue
 
         imgs = []
+        refs = []
         for i in range(len(eyes)):
-            pixels = renderer.render_cloud(cloud, eye=eyes[i]).squeeze()
-            imgs.append(PIL.Image.fromarray(pixels.astype(np.uint8)))
+            renderer = Render_cls.remote(
+                center=[0, 0, 0], world_up=[0, 0, 1], res=(224, 224)
+            )
+            refs.append(renderer.render_cloud.remote(cloud, eye=eyes[i]))
 
-        extractor = ImageFeatureExtractor.remote()
-        refs.append(extractor.features.remote(pil_imgs=imgs))
-        dump_names.append(str(feat_path))
+        pixels_list = ray.get(refs)
+        imgs = [
+            PIL.Image.fromarray(pixels.squeeze().astype(np.uint8))
+            for pixels in pixels_list
+        ]
 
-        if len(refs) >= dump_interval:
-            print("Waiting ...")
-            feats = ray_get_with_progress(refs)
-            print("Dumping ...")
-            for i in range(len(feats)):
-                np.save(dump_names[i], feats[i].squeeze())
-
-            dump_names = []
-            refs = []
+        feat = extractor.features(pil_imgs=imgs).squeeze()
+        np.save(str(feat_path), feat.squeeze())
