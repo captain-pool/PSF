@@ -120,16 +120,18 @@ class Uniform15KPC(Dataset):
             for x in os.listdir(sub_path):
                 if not x.endswith(".npy"):
                     continue
-                all_mids.append(os.path.join(self.split, x[: -len(".npy")]))
+                all_mids.append(x[: -len(".npy")])
 
             # NOTE: [mid] contains the split: i.e. "train/<mid>" or "val/<mid>" or "test/<mid>"
             for mid in all_mids:
                 # obj_fname = os.path.join(sub_path, x)
-                obj_fname = os.path.join(root_dir, subd, mid + ".npy")
-                feat_fname = os.path.join(root_dir, subd, "feats", mid + "_feat.npy")
+                obj_fname = os.path.join(root_dir, subd, self.split, mid + ".npy")
+                feat_fname = os.path.join(
+                    root_dir, subd, self.split, "feats", mid + "_feat.npy"
+                )
                 try:
                     point_cloud = np.load(obj_fname)  # (15k, 3)
-                    feats = np.load(feat_fname) # (25, 2048)
+                    feats = np.load(feat_fname)  # (25, 2048)
 
                 except:
                     continue
@@ -138,7 +140,7 @@ class Uniform15KPC(Dataset):
                 self.all_points.append(point_cloud[np.newaxis, ...])
                 self.all_feats.append(feats[np.newaxis, ...])
                 self.cate_idx_lst.append(cate_idx)
-                self.all_cate_mids.append((subd, mid))
+                self.all_cate_mids.append((subd, os.path.join(self.split, mid)))
 
         # Shuffle the index deterministically (based on the number of examples)
         self.shuffle_idx = list(range(len(self.all_points)))
@@ -267,7 +269,6 @@ class Uniform15KPC(Dataset):
         te_feat = te_feat_set[rnd_te_feat_idx][None, ...]
         te_feat = torch.from_numpy(te_feat).float()
 
-
         if self.random_subsample:
             te_idxs = np.random.choice(te_out.shape[0], self.te_sample_size)
         else:
@@ -278,13 +279,11 @@ class Uniform15KPC(Dataset):
         cate_idx = self.cate_idx_lst[idx]
         sid, mid = self.all_cate_mids[idx]
 
-        
         if self.reflow:
             idx = idx1
             x0 = self.x0[idx, :, :]
             x1 = self.x1[idx, :, :]
             feat = self.reflow_feats[idx]
-
 
             out = {
                 "idx": idx,
