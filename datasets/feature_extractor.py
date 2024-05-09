@@ -254,13 +254,12 @@ if __name__ == "__main__":
 
     for file in tqdm.tqdm(list(root.glob(f"{synset_id}/*/*.npy"))):
         feat_dir = file.parent / "feats"
-        img_dir = file.parent / "rendered"
+        img_dir = file.parent / "rendered" / f"{file.stem}"
 
         feat_dir.mkdir(exist_ok=True)
-        img_dir.mkdir(exist_ok=True)
+        img_dir.mkdir(exist_ok=True, parents=True)
 
         feat_path = feat_dir / f"{file.stem}_feat.npy"
-        img_path = img_dir / f"{file.stem}_rendered.png"
 
         try:
             cloud = np.load(file, allow_pickle=True)
@@ -278,8 +277,9 @@ if __name__ == "__main__":
         pixels_list = ray.get(refs)
         imgs = []
 
-        for pixel in pixels_list:
-            img = PIL.Image.fromarray(pixels.squeeze().astype(np.uint8))
+        for i, pixel in enumerate(pixels_list):
+            img = PIL.Image.fromarray(pixel.squeeze().astype(np.uint8))
+            img_path = img_dir / "{i:05d}.png"
             img.save(str(img_path))
             imgs.append(img)
 
