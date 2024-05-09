@@ -45,6 +45,9 @@ class Renderer:
 
     def render_cloud(self, batched_cloud, eye):
         # Images
+        if len(batched_cloud.shape) != 3:
+            batched_cloud = np.asarray([batched_cloud])
+
         images = np.zeros((len(batched_cloud), *self._res, 3), dtype=batched_cloud.dtype)
         eye = list2npy(eye).astype(np.float32)
         world_to_cam = look_at(eye[None], self.center[None], self.world_up[None])
@@ -53,8 +56,6 @@ class Renderer:
         self.scene.set_pose(self.cam_node, pose=cam_pose)
         self.scene.set_pose(self.light_node, pose=cam_pose)
 
-        if len(batched_cloud.shape) != 3:
-            batched_cloud = np.asarray([batched_cloud])
 
         for i in range(len(batched_cloud)):
 
@@ -78,39 +79,6 @@ class Renderer:
         return images
 
 
-def render_cloud(
-    batched_cloud,
-    eye,
-    center,
-    world_up,
-    res=(640, 640),
-    light_intensity=3.0,
-    ambient_intensity=0.5,
-    **kwargs,
-):
-    """Render a shapenet mesh using default settings.
-
-    Args:
-      trimesh_mesh: trimesh mesh instance, or a list of trimesh meshes
-        (or point clouds).
-      eye: array with shape [3,] containing the XYZ world
-        space position of the camera.
-      center: array with shape [3,] containing a position
-        along the center of the camera's gaze.
-      world_up: np.float32 array with shape [3,] specifying the
-        world's up direction; the output camera will have no tilt with respect
-        to this direction.
-      res: 2-tuple of int, [width, height], resolution (in pixels) of output
-        images.
-      light_intensity: float, light intensity.
-      ambient_intensity: float, ambient light intensity.
-      kwargs: additional flags to pass to pyrender renderer.
-    Returns:
-      color_img: [*res, 3] color image.
-      depth_img: [*res, 1] depth image.
-      world_to_cam: [4, 4] camera to world matrix.
-      projection_matrix: [4, 4] projection matrix, aka cam_to_img matrix.
-    """
 
 
 def list2npy(array):
