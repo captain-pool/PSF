@@ -172,7 +172,7 @@ if __name__ == "__main__":
 
     extractor = ImageFeatureExtractor()
 
-    for file in tqdm.tqdm(root.glob("*/*/*.npy")):
+    for file in tqdm.tqdm(list(root.glob("*/*/*.npy"))):
         img_dir = file.parent / "feats"
         if not img_dir.exists():
             img_dir.mkdir()
@@ -184,12 +184,9 @@ if __name__ == "__main__":
         except:
           continue
 
-        img_tensor = torch.zeros((len(eyes), 224, 224, 3), dtype=torch.float32)
+        img_tensor = np.zeros((len(eyes), 224, 224, 3)).astype(np.float32)
         for i in range(len(eyes)):
-            eye = eyes[i]
-            img_tensor[i] = torch.from_numpy(
-                renderer.render_cloud(cloud, eye=eye)
-            ).squeeze()
+            img_tensor[i] = renderer.render_cloud(cloud, eye=eyes[i]).squeeze()
 
         feats = extractor.features_img(img_tensor).numpy()
         np.save(str(feat_path), feats)
