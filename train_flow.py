@@ -11,7 +11,6 @@ from utils.visualize import *
 from model.pvcnn_generation import PVCNN2Base
 import torch.distributed as dist
 from datasets.shapenet_data_pc import ShapeNet15kPointClouds
-from datasets import feature_extractor
 
 class Flowmodel:
     def __init__(self, opt):
@@ -20,7 +19,7 @@ class Flowmodel:
 
     def p_mean(self, denoise_fn, data, feat, t):
 
-        model_output = denoise_fn(data, t)
+        model_output = denoise_fn(data, feat, t)
 
         model_mean = data + model_output * 1.0 / self.num_timesteps
 
@@ -208,8 +207,8 @@ class Model(nn.Module):
         B, D, N = data.shape
         assert data.dtype == torch.float
         # assert t.shape == torch.Size([B]) and t.dtype == torch.int64
-
-        out = self.model(data, feat, t)
+        print("FEAT NOT INTEGRATED")
+        out = self.model(data, t)
 
         assert out.shape == torch.Size([B, D, N])
         return out
@@ -217,6 +216,7 @@ class Model(nn.Module):
     def get_loss_iter(self, data, feat, noises=None):
 
         B, D, N = data.shape
+
         t = torch.randint(0, 1000, size=(B,), device=data.device)
 
         if noises is not None:
@@ -419,8 +419,6 @@ def train(gpu, opt, output_dir, noises_init):
         extra=opt.latent_dim,
     )
 
-    extractor = feature_extractor.ImageFeatureExtractor()
-
     if opt.distribution_type == "multi":  # Multiple processes, single GPU per process
 
         def _transform_(m):
@@ -431,7 +429,6 @@ def train(gpu, opt, output_dir, noises_init):
         torch.cuda.set_device(gpu)
         model.cuda(gpu)
         model.multi_gpu_wrapper(_transform_)
-        extractor.mark(ddp=True)
 
 
     elif opt.distribution_type == "single":
@@ -441,7 +438,6 @@ def train(gpu, opt, output_dir, noises_init):
 
         model = model.cuda()
         model.multi_gpu_wrapper(_transform_)
-        extractor.mark(dp=True)
 
 
     elif gpu is not None:
@@ -482,7 +478,7 @@ def train(gpu, opt, output_dir, noises_init):
         for i, data in enumerate(dataloader):
 
             x = data["train_points"].transpose(1, 2)
-            feat = extractor.features_img(data["train_img"])
+            feat = data["train_feat"]
 
             noises_batch = noises_init[data["idx"]].transpose(1, 2)
 

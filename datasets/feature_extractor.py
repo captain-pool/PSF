@@ -253,11 +253,14 @@ if __name__ == "__main__":
     synset_id = synsetid_to_cate[args.category]
 
     for file in tqdm.tqdm(list(root.glob(f"{synset_id}/*/*.npy"))):
-        img_dir = file.parent / "feats"
-        if not img_dir.exists():
-            img_dir.mkdir()
+        feat_dir = file.parent / "feats"
+        img_dir = file.parent / "rendered"
 
-        feat_path = img_dir / f"{file.stem}_feat.npy"
+        feat_dir.mkdir(exist_ok=True)
+        img_dir.mkdir(exist_ok=True)
+
+        feat_path = feat_dir / f"{file.stem}_feat.npy"
+        img_path = img_dir / f"{file.stem}_rendered.png"
 
         try:
             cloud = np.load(file, allow_pickle=True)
@@ -273,10 +276,12 @@ if __name__ == "__main__":
             refs.append(renderer.render_cloud.remote(cloud, eye=eyes[i]))
 
         pixels_list = ray.get(refs)
-        imgs = [
-            PIL.Image.fromarray(pixels.squeeze().astype(np.uint8))
-            for pixels in pixels_list
-        ]
+        imgs = []
+
+        for pixel in pixels_list:
+            img = PIL.Image.fromarray(pixels.squeeze().astype(np.uint8))
+            img.save(str(img_path))
+            imgs.append(img)
 
         feat = extractor.features(pil_imgs=imgs).squeeze()
         np.save(str(feat_path), feat.squeeze())

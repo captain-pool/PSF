@@ -7,7 +7,6 @@ import random
 import open3d as o3d
 import numpy as np
 import torch.nn.functional as F
-from utils import render
 
 # taken from https://github.com/optas/latent_3d_points/blob/8e8f29f8124ed5fc59439e8551ba7ef7567c9a37/src/in_out.py
 synsetid_to_cate = {
@@ -108,6 +107,7 @@ class Uniform15KPC(Dataset):
         self.all_cate_mids = []
         self.cate_idx_lst = []
         self.all_points = []
+        self.all_feats = []
 
         for cate_idx, subd in enumerate(self.subdirs):
             # NOTE: [subd] here is synset id
@@ -126,14 +126,17 @@ class Uniform15KPC(Dataset):
             for mid in all_mids:
                 # obj_fname = os.path.join(sub_path, x)
                 obj_fname = os.path.join(root_dir, subd, mid + ".npy")
+                feat_fname = os.path.join(root_dir, subd, "feats", mid + "_feat.npy")
                 try:
                     point_cloud = np.load(obj_fname)  # (15k, 3)
+                    feats = np.load(feat_fname) # (25, 2048)
 
                 except:
                     continue
 
                 assert point_cloud.shape[0] == 15000
                 self.all_points.append(point_cloud[np.newaxis, ...])
+                self.all_feats.append(feats[np.newaxis, ...])
                 self.cate_idx_lst.append(cate_idx)
                 self.all_cate_mids.append((subd, mid))
 
@@ -142,6 +145,7 @@ class Uniform15KPC(Dataset):
         random.Random(38383).shuffle(self.shuffle_idx)
         self.cate_idx_lst = [self.cate_idx_lst[i] for i in self.shuffle_idx]
         self.all_points = [self.all_points[i] for i in self.shuffle_idx]
+        self.all_feats = [self.all_feats[i] for i in self.shuffle_idx]
         self.all_cate_mids = [self.all_cate_mids[i] for i in self.shuffle_idx]
 
         # Normalization
@@ -194,8 +198,13 @@ class Uniform15KPC(Dataset):
         self.all_points = (self.all_points - self.all_points_mean) / self.all_points_std
         if self.box_per_shape:
             self.all_points = self.all_points - 0.5
-        self.train_points = self.all_points[:, :10000]
-        self.test_points = self.all_points[:, 10000:]
+
+        ntrain = int(0.8 * len(self.all_points))
+
+        self.train_points = self.all_points[:ntrain, :10000]
+        self.train_feats = self.all_feats[:ntrain]
+        self.test_points = self.all_points[ntrain:, 10000:]
+        self.test_feats = self.all_feats[ntrain:]
 
         self.tr_sample_size = min(10000, tr_sample_size)
         self.te_sample_size = min(5000, te_sample_size)
@@ -209,6 +218,7 @@ class Uniform15KPC(Dataset):
             reflow_data = torch.load("DATASET.pth", map_location="cpu")
             self.x0 = reflow_data[0]
             self.x1 = reflow_data[1]
+            self.reflow_feats = reflow_data[2]
 
     def get_pc_stats(self, idx):
         if self.normalize_per_shape or self.box_per_shape:
@@ -238,6 +248,12 @@ class Uniform15KPC(Dataset):
             idx = random.randint(0, 1001)
 
         tr_out = self.train_points[idx]
+
+        tr_feat_set = self.train_feats[idx]
+        rnd_tr_feat_idx = np.random.choice(tr_feat.shape[0], 1)
+        tr_feat = tr_feat_set[rnd_img_feat_idx][None, ...]
+        tr_feat = torch.from_numpy(tr_feat).float()
+
         if self.random_subsample:
             tr_idxs = np.random.choice(tr_out.shape[0], self.tr_sample_size)
         else:
@@ -245,6 +261,13 @@ class Uniform15KPC(Dataset):
         tr_out = torch.from_numpy(tr_out[tr_idxs, :]).float()
 
         te_out = self.test_points[idx]
+
+        te_feat_set = self.test_feats[idx]
+        rnd_te_feat_idx = np.random.choice(te_feat.shape[0], 1)
+        te_feat = te_feat_set[rnd_te_feat_idx][None, ...]
+        te_feat = torch.from_numpy(te_feat).float()
+
+
         if self.random_subsample:
             te_idxs = np.random.choice(te_out.shape[0], self.te_sample_size)
         else:
@@ -260,6 +283,7 @@ class Uniform15KPC(Dataset):
             idx = idx1
             x0 = self.x0[idx, :, :]
             x1 = self.x1[idx, :, :]
+            feat = self.reflow_feats[idx]
 
 
             out = {
@@ -267,8 +291,8 @@ class Uniform15KPC(Dataset):
                 "train_points0": x0,
                 "train_points1": x1,
                 "test_points": te_out,
-                "train_img": x1_img,
-                "test_img": te_img,
+                "train_feat": feat,
+                "test_feat": te_feat,
                 "mean": m,
                 "std": s,
                 "cate_idx": cate_idx,
@@ -280,8 +304,8 @@ class Uniform15KPC(Dataset):
                 "idx": idx,
                 "train_points": tr_out,
                 "test_points": te_out,
-                "train_img": tr_img,
-                "test_img": te_img,
+                "train_feat": tr_feat,
+                "test_feat": te_feat,
                 "mean": m,
                 "std": s,
                 "cate_idx": cate_idx,
