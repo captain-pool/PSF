@@ -9,6 +9,10 @@ from sklearn import manifold
 from torchvision import models
 
 import argparse
+import ray
+
+if not ray.is_initialized():
+    ray.init(num_gpus=torch.cuda.device_count())
 
 
 def build_parser():
@@ -23,7 +27,7 @@ def build_parser():
 def points_on_sphere(N):
     points = np.zeros((N, 3))
 
-    phi = np.pi * (3. - np.sqrt(5.))
+    phi = np.pi * (3.0 - np.sqrt(5.0))
     for i in range(N):
         y = 1 - (i / float(N - 1)) * 2
         radius = np.sqrt(1 - y**2)
@@ -37,19 +41,17 @@ def points_on_sphere(N):
     return points
 
 
-
-
-
 class Identity(torch.nn.Module):
     def forward(self, inputs):
         return inputs
 
 
+@ray.remote(num_gpus=torch.cuda.is_available() * 0.05)
 class ImageFeatureExtractor:
     def __init__(self, precompute=None, device=None):
 
         if torch.cuda.is_available():
-            self._device = device or f"cuda:{torch.cuda.device_count() - 1}"
+            self._device = device or f"cuda"
         else:
             self._device = "cpu"
 
@@ -61,7 +63,7 @@ class ImageFeatureExtractor:
         self._shape = [3, 224, 224]
         self.transforms = weights.transforms()
         self._frames_data = dict()
-        self._ncomponents = 2048#32
+        self._ncomponents = 2048  # 32
 
         self._reduce = manifold.LocallyLinearEmbedding(
             n_neighbors=10, n_components=self._ncomponents
@@ -109,7 +111,9 @@ class ImageFeatureExtractor:
     def features_img(self, img, latent_dim=2048):
         num_imgs = len(img)
         batch_size = min(num_imgs, 64)
-        computed_result = torch.zeros((num_imgs, self._ncomponents), dtype=torch.float32)
+        computed_result = torch.zeros(
+            (num_imgs, self._ncomponents), dtype=torch.float32
+        )
         with torch.no_grad():
             for i in range(0, num_imgs // batch_size, batch_size):
                 inputs = torch.from_numpy(img[i : i + batch_size]).to(self._device)
@@ -117,9 +121,8 @@ class ImageFeatureExtractor:
         return computed_result
 
     def features(self, img_paths=None, pil_imgs=None):
-        
 
-        assert img_paths is None or pil_imgs is None # We gotta do XOR
+        assert img_paths is None or pil_imgs is None  # We gotta do XOR
 
         cached = bool(img_paths)
 
@@ -136,9 +139,9 @@ class ImageFeatureExtractor:
             if cached and img_paths[i].name not in self._frames_data:
                 img = PIL.Image.open(img_paths[i]).convert("RGB")
             elif pil_imgs is not None:
-              inputs = self.transforms(pil_imgs[i])
-              computed_indices.append(i)
-              computed_data.append(inputs[None, ...])
+                inputs = self.transforms(pil_imgs[i])
+                computed_indices.append(i)
+                computed_data.append(inputs[None, ...])
             else:
                 cached_indices.append(i)
                 cached_data.append(self._frames_data[img_path.name])
@@ -153,13 +156,23 @@ class ImageFeatureExtractor:
             result[computed_indices] = computed_result.to(result.device)
 
             if cached:
-              for idx in computed_indices:
-                  self._frames_data[img_paths[idx].name] = result[idx]
+                for idx in computed_indices:
+                    self._frames_data[img_paths[idx].name] = result[idx]
 
         if len(cached_indices) > 0:
             result[cached_indices] = torch.vstack(cached_data).to(result.device)
 
         return result
+
+
+def ray_get_with_progress(refs):
+    pbar = tqdm.tqdm(total=len(refs))
+    results = []
+    while refs:
+        done, refs = ray.wait(refs)
+        results.append(ray.get(done[0]))
+        pbar.update(1)
+    return results
 
 
 if __name__ == "__main__":
@@ -175,12 +188,14 @@ if __name__ == "__main__":
 
     renderer = render.Renderer(center=[0, 0, 0], world_up=[0, 0, 1], res=(224, 224))
 
-
     eyes = 1.5 * points_on_sphere(args.nviews)
 
     root = pathlib.Path(args.dataroot)
 
-    extractor = ImageFeatureExtractor()
+    dump_interval = 100
+
+    refs = []
+    dump_names = []
 
     for file in tqdm.tqdm(list(root.glob("*/*/*.npy"))):
         img_dir = file.parent / "feats"
@@ -190,14 +205,25 @@ if __name__ == "__main__":
         feat_path = img_dir / f"{file.stem}_feat.npy"
 
         try:
-          cloud = np.load(file, allow_pickle=True)
+            cloud = np.load(file, allow_pickle=True)
         except:
-          continue
+            continue
 
-        imgs = [] 
+        imgs = []
         for i in range(len(eyes)):
             pixels = renderer.render_cloud(cloud, eye=eyes[i]).squeeze()
             imgs.append(PIL.Image.fromarray(pixels.astype(np.uint8)))
 
-        feats = extractor.features(pil_imgs=imgs).numpy()
-        np.save(str(feat_path), feats)
+        extractor = ImageFeatureExtractor.remote()
+        refs.append(extractor.features.remote(pil_imgs=imgs))
+        dump_names.append(str(feat_path))
+
+        if len(refs) >= dump_interval:
+            print("Waiting ...")
+            feats = ray_get_with_progress(refs)
+            print("Dumping ...")
+            for i in range(len(feats)):
+                np.save(dump_names[i], feats[i].squeeze())
+
+            dump_names = []
+            refs = []
