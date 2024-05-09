@@ -150,6 +150,9 @@ class Uniform15KPC(Dataset):
         self.all_feats = [self.all_feats[i] for i in self.shuffle_idx]
         self.all_cate_mids = [self.all_cate_mids[i] for i in self.shuffle_idx]
 
+
+        self.all_feats = np.concatenate(self.all_feats)
+
         # Normalization
         self.all_points = np.concatenate(self.all_points)  # (N, 15000, 3)
         self.normalize_per_shape = normalize_per_shape
@@ -201,12 +204,17 @@ class Uniform15KPC(Dataset):
         if self.box_per_shape:
             self.all_points = self.all_points - 0.5
 
-        ntrain = int(0.8 * len(self.all_points))
+        ntrain = int(0.8 * self.all_feats.shape[1])
+        feat_shuffle_idxs = np.arange(self.all_feats.shape[1])
+        np.random.shuffle(feat_shuffle_idxs)
 
-        self.train_points = self.all_points[:ntrain, :10000]
-        self.train_feats = self.all_feats[:ntrain]
-        self.test_points = self.all_points[ntrain:, 10000:]
-        self.test_feats = self.all_feats[ntrain:]
+        feat_tr_idxs = feat_shuffle_idxs[:ntrain]
+        feat_te_idxs = feat_shuffle_idxs[ntrain:]
+
+        self.train_points = self.all_points[:, :10000]
+        self.train_feats = self.all_feats[:, feat_tr_idxs, :]
+        self.test_points = self.all_points[:, 10000:]
+        self.test_feats = self.all_feats[:, feat_te_idxs, :]
 
         self.tr_sample_size = min(10000, tr_sample_size)
         self.te_sample_size = min(5000, te_sample_size)
@@ -252,8 +260,8 @@ class Uniform15KPC(Dataset):
         tr_out = self.train_points[idx]
 
         tr_feat_set = self.train_feats[idx]
-        rnd_tr_feat_idx = np.random.choice(tr_feat.shape[0], 1)
-        tr_feat = tr_feat_set[rnd_img_feat_idx][None, ...]
+        rnd_tr_feat_idx = np.random.randint(0, tr_feat_set.shape[0]) 
+        tr_feat = tr_feat_set[rnd_tr_feat_idx]
         tr_feat = torch.from_numpy(tr_feat).float()
 
         if self.random_subsample:
@@ -265,8 +273,8 @@ class Uniform15KPC(Dataset):
         te_out = self.test_points[idx]
 
         te_feat_set = self.test_feats[idx]
-        rnd_te_feat_idx = np.random.choice(te_feat.shape[0], 1)
-        te_feat = te_feat_set[rnd_te_feat_idx][None, ...]
+        rnd_te_feat_idx = np.random.randint(0, te_feat_set.shape[0])
+        te_feat = te_feat_set[rnd_te_feat_idx]
         te_feat = torch.from_numpy(te_feat).float()
 
         if self.random_subsample:
