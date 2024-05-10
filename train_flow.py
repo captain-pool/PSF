@@ -122,7 +122,6 @@ class Flowmodel:
     @torch.no_grad()
     def sample_pairs(self, data, x0=None):
 
-        breakpoint()
         if x0 is None:
             x0 = torch.randn_like(data)
 
@@ -611,6 +610,7 @@ def main():
     output_dir = get_output_dir(dir_id, exp_id)
     copy_source(__file__, output_dir)
 
+
     """ workaround """
     train_dataset, _ = get_dataset(opt.dataroot, opt.npoints, opt.category)
     noises_init = torch.randn(len(train_dataset), opt.npoints, opt.nc)
@@ -671,7 +671,7 @@ def parse_args():
     parser.add_argument(
         "--model", default="", help="path to model (to continue training)"
     )
-    parser.add_argument("--ldim", dest="latent_dim", default=2048, help="dimension size of latent vector")
+    parser.add_argument("--ldim", dest="latent_dim", default=32, help="dimension size of latent vector")
 
     """distributed"""
     parser.add_argument(

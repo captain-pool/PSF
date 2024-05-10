@@ -7,7 +7,9 @@ import random
 import open3d as o3d
 import numpy as np
 import torch.nn.functional as F
-from cuml import manifold
+import cuml
+from cuml.common import device_selection
+
 
 # taken from https://github.com/optas/latent_3d_points/blob/8e8f29f8124ed5fc59439e8551ba7ef7567c9a37/src/in_out.py
 synsetid_to_cate = {
@@ -205,8 +207,8 @@ class Uniform15KPC(Dataset):
             self.all_points = self.all_points - 0.5
 
         n_components = 32
-        self._reduce = manifold.UMAP(
-            n_neighbors=10, n_components=n_components
+        self._reduce = cuml.PCA(
+            n_components=n_components
         )
         self._reduce.fit(np.reshape(self.all_feats, (-1, self.all_feats.shape[-1])))
 
@@ -269,9 +271,11 @@ class Uniform15KPC(Dataset):
         tr_feat_set = self.train_feats[idx]
         rnd_tr_feat_idx = np.random.randint(0, tr_feat_set.shape[0])
         tr_feat = tr_feat_set[rnd_tr_feat_idx]
-        tr_feat = self._reduce.transform(tr_feat)
+        tr_feat = tr_feat[None, ...]
+        with device_selection.using_device_type('cpu'):
+          tr_feat = self._reduce.transform(tr_feat)
+        tr_feat = torch.from_numpy(tr_feat).squeeze().float()
         tr_feat = tr_feat[..., None]
-        tr_feat = torch.from_numpy(tr_feat).float()
 
         if self.random_subsample:
             tr_idxs = np.random.choice(tr_out.shape[0], self.tr_sample_size)
@@ -284,9 +288,11 @@ class Uniform15KPC(Dataset):
         te_feat_set = self.test_feats[idx]
         rnd_te_feat_idx = np.random.randint(0, te_feat_set.shape[0])
         te_feat = te_feat_set[rnd_te_feat_idx]
-        te_feat = self._reduce.transform(te_feat)
+        te_feat =te_feat[None, ...]
+        with device_selection.using_device_type('cpu'):
+          te_feat = self._reduce.transform(te_feat)
+        te_feat = torch.from_numpy(te_feat).squeeze().float()
         te_feat = te_feat[..., None]
-        te_feat = torch.from_numpy(te_feat).float()
 
         if self.random_subsample:
             te_idxs = np.random.choice(te_out.shape[0], self.te_sample_size)
