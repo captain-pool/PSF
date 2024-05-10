@@ -7,7 +7,7 @@ import random
 import open3d as o3d
 import numpy as np
 import torch.nn.functional as F
-from sklearn import manifold
+from cuml import manifold
 
 # taken from https://github.com/optas/latent_3d_points/blob/8e8f29f8124ed5fc59439e8551ba7ef7567c9a37/src/in_out.py
 synsetid_to_cate = {
@@ -205,7 +205,7 @@ class Uniform15KPC(Dataset):
             self.all_points = self.all_points - 0.5
 
         n_components = 32
-        self._reduce = manifold.LocallyLinearEmbedding(
+        self._reduce = manifold.UMAP(
             n_neighbors=10, n_components=n_components
         )
         self._reduce.fit(np.reshape(self.all_feats, (-1, self.all_feats.shape[-1])))
