@@ -521,12 +521,12 @@ def train(gpu, opt, output_dir, noises_init):
             with torch.no_grad():
 
                 x_gen_eval = model.gen_samples(
-                    new_x_chain(x, 25).shape, x.device, feat=feat, clip_denoised=False
+                    new_x_chain(x, feat.shape[0]).shape, x.device, feat=feat, clip_denoised=False
                 )
                 x_gen_list = model.gen_sample_traj(
                     new_x_chain(x, 1).shape,
                     x.device,
-                    feat=feat,
+                    feat=feat[0][None, ...],
                     freq=40,
                     clip_denoised=False,
                 )

@@ -207,10 +207,15 @@ class Uniform15KPC(Dataset):
             self.all_points = self.all_points - 0.5
 
         n_components = 32
-        self._reduce = cuml.PCA(
-            n_components=n_components
-        )
-        self._reduce.fit(np.reshape(self.all_feats, (-1, self.all_feats.shape[-1])))
+        with device_selection.using_device_type('cpu'):
+            self._reduce = cuml.PCA(
+                n_components=n_components
+            )
+
+        with device_selection.using_device_type('gpu'):
+          self._reduce.fit(np.reshape(self.all_feats, (-1, self.all_feats.shape[-1])))
+
+
 
         ntrain = int(0.8 * self.all_feats.shape[1])
         feat_shuffle_idxs = np.arange(self.all_feats.shape[1])
