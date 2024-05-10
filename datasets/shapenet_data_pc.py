@@ -7,6 +7,7 @@ import random
 import open3d as o3d
 import numpy as np
 import torch.nn.functional as F
+from sklearn import manifold
 
 # taken from https://github.com/optas/latent_3d_points/blob/8e8f29f8124ed5fc59439e8551ba7ef7567c9a37/src/in_out.py
 synsetid_to_cate = {
@@ -150,7 +151,6 @@ class Uniform15KPC(Dataset):
         self.all_feats = [self.all_feats[i] for i in self.shuffle_idx]
         self.all_cate_mids = [self.all_cate_mids[i] for i in self.shuffle_idx]
 
-
         self.all_feats = np.concatenate(self.all_feats)
 
         # Normalization
@@ -204,6 +204,12 @@ class Uniform15KPC(Dataset):
         if self.box_per_shape:
             self.all_points = self.all_points - 0.5
 
+        n_components = 32
+        self._reduce = manifold.LocallyLinearEmbedding(
+            n_neighbors=10, n_components=n_components
+        )
+        self._reduce.fit(np.reshape(self.all_feats, (-1, self.all_feats.shape[-1])))
+
         ntrain = int(0.8 * self.all_feats.shape[1])
         feat_shuffle_idxs = np.arange(self.all_feats.shape[1])
         np.random.shuffle(feat_shuffle_idxs)
@@ -223,6 +229,7 @@ class Uniform15KPC(Dataset):
             "Min number of points: (train)%d (test)%d"
             % (self.tr_sample_size, self.te_sample_size)
         )
+
         assert self.scale == 1, "Scale (!= 1) is deprecated"
         if reflow:
             reflow_data = torch.load("DATASET.pth", map_location="cpu")
@@ -260,8 +267,10 @@ class Uniform15KPC(Dataset):
         tr_out = self.train_points[idx]
 
         tr_feat_set = self.train_feats[idx]
-        rnd_tr_feat_idx = np.random.randint(0, tr_feat_set.shape[0]) 
-        tr_feat = tr_feat_set[rnd_tr_feat_idx][..., None]
+        rnd_tr_feat_idx = np.random.randint(0, tr_feat_set.shape[0])
+        tr_feat = tr_feat_set[rnd_tr_feat_idx]
+        tr_feat = self._reduce.transform(tr_feat)
+        tr_feat = tr_feat[..., None]
         tr_feat = torch.from_numpy(tr_feat).float()
 
         if self.random_subsample:
@@ -274,7 +283,9 @@ class Uniform15KPC(Dataset):
 
         te_feat_set = self.test_feats[idx]
         rnd_te_feat_idx = np.random.randint(0, te_feat_set.shape[0])
-        te_feat = te_feat_set[rnd_te_feat_idx][..., None]
+        te_feat = te_feat_set[rnd_te_feat_idx]
+        te_feat = self._reduce.transform(te_feat)
+        te_feat = te_feat[..., None]
         te_feat = torch.from_numpy(te_feat).float()
 
         if self.random_subsample:

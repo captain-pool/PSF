@@ -5,7 +5,6 @@ import PIL.Image
 import scipy.spatial
 import torch
 import tqdm
-from sklearn import manifold
 from torchvision import models
 from torchvision.models import feature_extraction
 
@@ -123,11 +122,7 @@ class ImageFeatureExtractor:
         self._shape = [3, 224, 224]
         self.transforms = weights.transforms()
         self._frames_data = dict()
-        self._ncomponents = 32
-
-        self._reduce = manifold.LocallyLinearEmbedding(
-            n_neighbors=10, n_components=self._ncomponents
-        )
+        self._ncomponents = 512
 
         if precompute is not None:
 
@@ -168,7 +163,7 @@ class ImageFeatureExtractor:
 
         return self.model
 
-    def features_img(self, img, latent_dim=2048):
+    def features_img(self, img):
         num_imgs = len(img)
         batch_size = min(num_imgs, 64)
         computed_result = torch.zeros(
@@ -178,9 +173,7 @@ class ImageFeatureExtractor:
             for i in range(0, num_imgs // batch_size, batch_size):
                 inputs = torch.from_numpy(img[i : i + batch_size]).to(self._device)
                 computed_result = self.model(self.transforms(inputs))["out"]
-                computed_result = computed_result.detach().cpu().numpy()
-                computed_result = self._reduce.fit_transform(computed_result)
-                computed_result = torch.tensor(computed_result).float()
+                computed_result = computed_result.squeeze().detach().cpu()
         return computed_result
 
     def features(self, img_paths=None, pil_imgs=None):
@@ -213,10 +206,7 @@ class ImageFeatureExtractor:
             computed_data = torch.concat(computed_data).to(self._device)
             with torch.no_grad():
                 computed_result = self.model(computed_data)['out']
-                computed_result = computed_result.detach().cpu().numpy()
-                computed_result = torch.tensor(
-                    self._reduce.fit_transform(computed_result)
-                ).float()
+                computed_result = computed_result.squeeze().detach().cpu()
             result[computed_indices] = computed_result.to(result.device)
 
             if cached:
@@ -286,7 +276,7 @@ if __name__ == "__main__":
 
         for i, pixel in enumerate(pixels_list):
             img = PIL.Image.fromarray(pixel.squeeze().astype(np.uint8))
-            img_path = img_dir / "{i:05d}.png"
+            img_path = img_dir / f"{i:05d}.png"
             img.save(str(img_path))
             imgs.append(img)
 

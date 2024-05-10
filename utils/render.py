@@ -60,6 +60,7 @@ class Renderer:
         for i in range(len(batched_cloud)):
 
             tmesh = trimesh.points.PointCloud(batched_cloud[i])
+            c = np.random.uniform(size=[3,])
 
             if isinstance(tmesh, trimesh.Trimesh):
                 mesh = pyrender.Mesh.from_trimesh(tmesh)
@@ -67,7 +68,7 @@ class Renderer:
                 if tmesh.colors is not None:
                     colors = np.array(tmesh.colors)
                 else:
-                    colors = np.ones_like(tmesh.vertices)
+                    colors = c * np.ones_like(tmesh.vertices)
                 mesh = pyrender.Mesh.from_points(
                     np.array(tmesh.vertices), colors=colors
                 )
