@@ -6,10 +6,9 @@ import scipy.spatial
 import torch
 import tqdm
 from torchvision import models
-from torchvision.models import feature_extraction
+from torchvision.models import vision_transformer
 
 import argparse
-import ray
 
 synsetid_to_cate = {
     "airplane": "02691156",
@@ -77,7 +76,7 @@ def build_parser():
     parser.add_argument(
         "--dataroot", required=True, help="Data Root with npy point clouds"
     )
-    parser.add_argument("--nviews", type=int, default=5, help="Number of Views")
+    parser.add_argument("--r2n2dir", required=True, help="R2N2 Directory")
     parser.add_argument("--category", default="chair", type=str)
     return parser
 
@@ -112,17 +111,13 @@ class ImageFeatureExtractor:
         else:
             self._device = "cpu"
 
-        weights = models.ResNet18_Weights.IMAGENET1K_V1
-        model = models.resnet18(weights=weights)
-        rn = {"avgpool": "out"}
-
-        model = feature_extraction.create_feature_extractor(model, rn)
-        self.model = model.to(self._device)
+        weights = vision_transformer.ViT_B_16_Weights.IMAGENET1K_V1
+        self.model = vision_transformer.vit_b_16(weights=weights).to(self._device)
 
         self._shape = [3, 224, 224]
         self.transforms = weights.transforms()
         self._frames_data = dict()
-        self._ncomponents = 512
+        self._ncomponents = 768
 
         if precompute is not None:
 
@@ -144,38 +139,6 @@ class ImageFeatureExtractor:
             result = self.features(precompute[precompute_idxs])
             self.tree = scipy.spatial.KDTree(result)
 
-    def mark(self, dp=False, ddp=False):
-
-        assert dp or ddp, "DataParallel or DistributedDataParallel has to be set"
-
-        dp_wrapper_fn = torch.nn.parallel.DataParallel
-        ddp_wrapper_fn = functools.partial(
-            torch.nn.parallel.DistributedDataParallel,
-            device_ids=[self._device],
-            output_device=[self._device],
-        )
-
-        if dp:
-            return dp_wrapper_fn(self.model)
-
-        if ddp:
-            return ddp_wrapper_fn(self.model)
-
-        return self.model
-
-    def features_img(self, img):
-        num_imgs = len(img)
-        batch_size = min(num_imgs, 64)
-        computed_result = torch.zeros(
-            (num_imgs, self._ncomponents), dtype=torch.float32
-        )
-        with torch.no_grad():
-            for i in range(0, num_imgs // batch_size, batch_size):
-                inputs = torch.from_numpy(img[i : i + batch_size]).to(self._device)
-                computed_result = self.model(self.transforms(inputs))["out"]
-                computed_result = computed_result.squeeze().detach().cpu()
-        return computed_result
-
     def features(self, img_paths=None, pil_imgs=None):
 
         assert img_paths is None or pil_imgs is None  # We gotta do XOR
@@ -184,7 +147,7 @@ class ImageFeatureExtractor:
 
         nimgs = len(img_paths) if img_paths is not None else len(pil_imgs)
 
-        result = torch.empty(nimgs, self._ncomponents, dtype=torch.float32)
+        result = torch.zeros(nimgs, self._ncomponents, dtype=torch.float32)
 
         computed_data = []
         computed_indices = []
@@ -192,21 +155,32 @@ class ImageFeatureExtractor:
         cached_data = []
 
         for i in range(nimgs):
-            if cached and img_paths[i].name not in self._frames_data:
-                img = PIL.Image.open(img_paths[i]).convert("RGB")
-            elif pil_imgs is not None:
-                inputs = self.transforms(pil_imgs[i])
-                computed_indices.append(i)
-                computed_data.append(inputs[None, ...])
+            if cached:
+                if img_paths[i].name not in self._frames_data:
+                    img = PIL.Image.open(img_paths[i]).convert("RGB")
+                else:
+                    cached_indices.append(i)
+                    cached_data.append(self._frames_data[img_path.name])
+                    continue
             else:
-                cached_indices.append(i)
-                cached_data.append(self._frames_data[img_path.name])
+                img = pil_imgs[i]
+
+            inputs = self.transforms(img)
+            computed_indices.append(i)
+            computed_data.append(inputs[None, ...])
 
         if len(computed_indices) > 0:
             computed_data = torch.concat(computed_data).to(self._device)
             with torch.no_grad():
-                computed_result = self.model(computed_data)['out']
+                computed_result = self.model._process_input(computed_data)
+                batch_class_token = self.model.class_token.expand(
+                    computed_result.shape[0], -1, -1
+                )
+                computed_result = torch.cat([batch_class_token, computed_result], dim=1)
+                computed_result = self.model.encoder(computed_result)
+                computed_result = computed_result[:, 1:].mean(dim=1)
                 computed_result = computed_result.squeeze().detach().cpu()
+
             result[computed_indices] = computed_result.to(result.device)
 
             if cached:
@@ -219,19 +193,8 @@ class ImageFeatureExtractor:
         return result
 
 
-def ray_get_with_progress(refs):
-    pbar = tqdm.tqdm(total=len(refs))
-    results = []
-    while refs:
-        done, refs = ray.wait(refs)
-        results.append(ray.get(done[0]))
-        pbar.update(1)
-    return results
-
-
 if __name__ == "__main__":
 
-    from utils import render
     import numpy as np
     import pathlib
     import tqdm
@@ -240,45 +203,33 @@ if __name__ == "__main__":
 
     args, _ = parser.parse_known_args()
 
-    eyes = 1.5 * points_on_sphere(args.nviews)
-
     root = pathlib.Path(args.dataroot)
+    rendered_dir = pathlib.Path(args.r2n2dir)
 
     extractor = ImageFeatureExtractor()
-    Render_cls = ray.remote(render.Renderer)
 
     synset_id = synsetid_to_cate[args.category]
 
-    for file in tqdm.tqdm(list(root.glob(f"{synset_id}/*/*.npy"))):
-        feat_dir = file.parent / "feats"
-        img_dir = file.parent / "rendered" / f"{file.stem}"
+    for f in tqdm.tqdm(list(root.glob(f"{synset_id}/*/*.npy"))):
+        feat_dir = f.parent / "feats"
 
         feat_dir.mkdir(exist_ok=True)
-        img_dir.mkdir(exist_ok=True, parents=True)
 
-        feat_path = feat_dir / f"{file.stem}_feat.npy"
+        feat_path = feat_dir / f"{f.stem}_feat.npy"
 
         try:
-            cloud = np.load(file, allow_pickle=True)
+            np.load(f, allow_pickle=True)
         except:
             continue
 
         imgs = []
         refs = []
-        for i in range(len(eyes)):
-            renderer = Render_cls.remote(
-                center=[0, 0, 0], world_up=[0, 0, 1], res=(224, 224)
-            )
-            refs.append(renderer.render_cloud.remote(cloud, eye=eyes[i]))
 
-        pixels_list = ray.get(refs)
-        imgs = []
-
-        for i, pixel in enumerate(pixels_list):
-            img = PIL.Image.fromarray(pixel.squeeze().astype(np.uint8))
-            img_path = img_dir / f"{i:05d}.png"
-            img.save(str(img_path))
+        images = rendered_dir / synset_id / f.stem / "rendering"
+        for i, image_path in enumerate(images.glob("*.png")):
+            img = PIL.Image.open(str(image_path)).convert("RGB")
             imgs.append(img)
-
+        if len(imgs) == 0:
+          raise OSError("Files not found.")
         feat = extractor.features(pil_imgs=imgs).squeeze()
         np.save(str(feat_path), feat.squeeze())

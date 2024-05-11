@@ -302,7 +302,7 @@ def get_betas(schedule_type, b_start, b_end, time_num):
     return betas
 
 
-def get_dataset(dataroot, npoints, category):
+def get_dataset(dataroot, npoints, category, condition_dim):
     tr_dataset = ShapeNet15kPointClouds(
         root_dir=dataroot,
         categories=[category],
@@ -314,6 +314,7 @@ def get_dataset(dataroot, npoints, category):
         normalize_per_shape=False,
         normalize_std_per_axis=False,
         random_subsample=True,
+        condition_dim=condition_dim,
     )
     te_dataset = ShapeNet15kPointClouds(
         root_dir=dataroot,
@@ -327,6 +328,7 @@ def get_dataset(dataroot, npoints, category):
         normalize_std_per_axis=False,
         all_points_mean=tr_dataset.all_points_mean,
         all_points_std=tr_dataset.all_points_std,
+        condition_dim=condition_dim,
     )
     return tr_dataset, te_dataset
 
@@ -403,7 +405,7 @@ def train(gpu, opt, output_dir, noises_init):
         opt.vizIter = int(opt.vizIter / opt.ngpus_per_node)
 
     """ data """
-    train_dataset, _ = get_dataset(opt.dataroot, opt.npoints, opt.category)
+    train_dataset, _ = get_dataset(opt.dataroot, opt.npoints, opt.category, opt.condition_dim)
     dataloader, _, train_sampler, _ = get_dataloader(opt, train_dataset, None)
 
     """
@@ -469,12 +471,13 @@ def train(gpu, opt, output_dir, noises_init):
     def new_x_chain(x, num_chain):
         return torch.randn(num_chain, *x.shape[1:], device=x.device)
 
+    torch.autograd.set_detect_anomaly(True)
     for epoch in range(start_epoch, opt.niter):
 
         if opt.distribution_type == "multi":
             train_sampler.set_epoch(epoch)
 
-        lr_scheduler.step(epoch)
+        lr_scheduler.step()
 
         for i, data in enumerate(dataloader):
 
@@ -498,9 +501,8 @@ def train(gpu, opt, output_dir, noises_init):
 
             optimizer.zero_grad()
             loss.backward()
-            # netpNorm, netgradNorm = getGradNorm(model)
-            # if opt.grad_clip is not None:
-            #    torch.nn.utils.clip_grad_norm_(model.parameters(), opt.grad_clip)
+            if opt.grad_clip is not None:
+               torch.nn.utils.clip_grad_norm_(model.parameters(), opt.grad_clip)
 
             optimizer.step()
 
@@ -511,6 +513,8 @@ def train(gpu, opt, output_dir, noises_init):
                         epoch, opt.niter, i, len(dataloader), loss.item()
                     )
                 )
+                total_norm = 0
+
 
         if (epoch + 1) % opt.vizIter == 0 and should_diag:
             logger.info("Generation: eval")
@@ -612,7 +616,7 @@ def main():
 
 
     """ workaround """
-    train_dataset, _ = get_dataset(opt.dataroot, opt.npoints, opt.category)
+    train_dataset, _ = get_dataset(opt.dataroot, opt.npoints, opt.category, opt.condition_dim)
     noises_init = torch.randn(len(train_dataset), opt.npoints, opt.nc)
 
     if opt.dist_url == "env://" and opt.world_size == -1:
@@ -632,24 +636,25 @@ def parse_args():
     parser.add_argument("--dataroot", default="./ShapeNetCore.v2.PC15k/")
     parser.add_argument("--category", default="car")
 
-    parser.add_argument("--bs", type=int, default=48, help="input batch size")
+    parser.add_argument("--bs", type=int, default=64, help="input batch size")
     parser.add_argument("--workers", type=int, default=16, help="workers")
     parser.add_argument(
         "--niter", type=int, default=20000, help="number of epochs to train for"
     )
 
     parser.add_argument("--nc", default=3)
-    parser.add_argument("--npoints", default=1000)
+    parser.add_argument("--npoints", default=2000)
     """model"""
     parser.add_argument("--beta_start", default=0.0001)
     parser.add_argument("--beta_end", default=0.02)
     parser.add_argument("--schedule_type", default="linear")
     parser.add_argument("--time_num", default=1000)
+    parser.add_argument("--condition_dim", type=int, default=32)
 
     # params
     parser.add_argument("--attention", default=True)
     parser.add_argument("--dropout", default=0.1)
-    parser.add_argument("--embed_dim", type=int, default=64)
+    parser.add_argument("--embed_dim", type=int, default=128)
     parser.add_argument("--loss_type", default="mse")
     parser.add_argument("--model_mean_type", default="eps")
     parser.add_argument("--model_var_type", default="fixedsmall")

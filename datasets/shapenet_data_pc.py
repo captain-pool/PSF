@@ -9,6 +9,7 @@ import numpy as np
 import torch.nn.functional as F
 import cuml
 from cuml.common import device_selection
+import joblib
 
 
 # taken from https://github.com/optas/latent_3d_points/blob/8e8f29f8124ed5fc59439e8551ba7ef7567c9a37/src/in_out.py
@@ -91,6 +92,7 @@ class Uniform15KPC(Dataset):
         all_points_mean=None,
         all_points_std=None,
         input_dim=3,
+        condition_dim=32,
         use_mask=False,
     ):
         self.root_dir = root_dir
@@ -111,6 +113,8 @@ class Uniform15KPC(Dataset):
         self.cate_idx_lst = []
         self.all_points = []
         self.all_feats = []
+
+        pca_model_path = os.path.join(self.root_dir, "pca_dim_%d.model" % condition_dim)
 
         for cate_idx, subd in enumerate(self.subdirs):
             # NOTE: [subd] here is synset id
@@ -206,14 +210,23 @@ class Uniform15KPC(Dataset):
         if self.box_per_shape:
             self.all_points = self.all_points - 0.5
 
-        n_components = 32
-        with device_selection.using_device_type('cpu'):
-            self._reduce = cuml.PCA(
-                n_components=n_components
-            )
+        n_components = condition_dim
 
-        with device_selection.using_device_type('gpu'):
-          self._reduce.fit(np.reshape(self.all_feats, (-1, self.all_feats.shape[-1])))
+        with device_selection.using_device_type('cpu'):
+            if not os.path.exists(pca_model_path):
+                self._reduce = cuml.PCA(
+                    n_components=n_components
+                )
+            else:
+                print("[Data Loader] Loading Dim Reduce Model from: %s" % pca_model_path)
+                self._reduce = joblib.load(pca_model_path)
+
+        if not os.path.exists(pca_model_path):
+          with device_selection.using_device_type('gpu'):
+            self._reduce.fit(np.reshape(self.all_feats, (-1, self.all_feats.shape[-1])))
+            joblib.dump(self._reduce, pca_model_path)
+
+
 
 
 
@@ -372,6 +385,7 @@ class ShapeNet15kPointClouds(Uniform15KPC):
         normalize_std_per_axis=False,
         box_per_shape=False,
         random_subsample=False,
+        condition_dim=32,
         reflow=False,
         all_points_mean=None,
         all_points_std=None,
@@ -407,6 +421,7 @@ class ShapeNet15kPointClouds(Uniform15KPC):
             all_points_mean=all_points_mean,
             all_points_std=all_points_std,
             input_dim=3,
+            condition_dim=condition_dim,
             use_mask=use_mask,
         )
 
